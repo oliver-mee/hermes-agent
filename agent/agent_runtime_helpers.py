@@ -1837,6 +1837,37 @@ def anthropic_prompt_cache_policy(
     if isinstance(eff_model, dict):
         eff_model = eff_model.get('model') or eff_model.get('default') or ''
     eff_model = eff_model if isinstance(eff_model, str) else str(eff_model or '')
+
+    # External provider profiles may declare transport/model-scoped cache
+    # support. This keeps plugin IDs and endpoint-specific capabilities out of
+    # Hermes' built-in allowlists. ``None`` preserves the legacy fallback.
+    try:
+        from providers import get_provider_profile
+
+        profile = get_provider_profile(eff_provider)
+        if profile is not None:
+            declared = profile.prompt_cache_policy(
+                model=eff_model,
+                api_mode=eff_api_mode,
+                base_url=eff_base_url,
+            )
+            if declared is not None:
+                if (
+                    not isinstance(declared, tuple)
+                    or len(declared) != 2
+                    or not all(isinstance(value, bool) for value in declared)
+                ):
+                    raise TypeError(
+                        "prompt_cache_policy must return (bool, bool) or None"
+                    )
+                return declared
+    except Exception as exc:
+        logger.warning(
+            "Provider prompt-cache policy failed for %s; using core fallback: %s",
+            eff_provider,
+            exc,
+        )
+
     model_lower = eff_model.lower()
     provider_lower = eff_provider.lower()
     is_claude = "claude" in model_lower
